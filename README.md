@@ -2,7 +2,7 @@
 
 独立控制 Sony **Xperia Stream (XQZ-GG01)** 的风扇与接口状态，**不依赖 Sony 的 GamingFanService / ThermalFanService**，适用于第三方 ROM（如在 HyperOS 移植的 Android 17 上验证）。
 
-App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`），因此不需要 Sony 的平台签名应用，也不需要 root。
+App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`），因此不需要 Sony 的平台签名应用，也不需要 root。配套的 **SukiSU** 模块只用来安装 APK 和提供几个 root 诊断脚本。
 
 ## 功能
 
@@ -21,7 +21,12 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 | 设备 | Xperia 1 V（XQ-DQ* / pdx234） |
 | 配件 | Xperia Stream（XQZ-GG01） |
 | 系统 | Android 13+；在 HyperOS 4 / Android 17 移植版上验证 |
-| Root | App 本身不需要；模块需要 KernelSU / SukiSU |
+| Root | App 本身不需要；模块用于 **SukiSU**（KernelSU 分支） |
+
+## 下载
+
+- [最新 Release](https://github.com/815756611-web/Sony-stream-unlock/releases/latest)
+- [v1.4.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v1.4.0)
 
 ## 安装
 
@@ -31,9 +36,9 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 adb install -r StreamFanCtl.apk
 ```
 
-### KernelSU / SukiSU 模块
+### SukiSU 模块
 
-刷入 `StreamFanCtl-v1.3.6.zip` 后重启。模块会安装 APK，并附带：
+刷入 `StreamFanCtl-v1.4.0.zip` 后重启。模块会安装 APK，并附带：
 
 - `tools/audio-diag.sh` —— 3.5mm / USB 音频链路诊断
 - `tools/usb-monitor.sh` —— USB 掉线瞬间抓 dmesg 与供电信息
