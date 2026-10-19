@@ -2,6 +2,7 @@ package com.xperiastream.fanctl;
 
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -26,6 +27,9 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.telephony.PhoneStateListener;
+import android.telephony.TelephonyCallback;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -120,6 +124,10 @@ public class MainActivity extends Activity {
     private boolean voicePauseEnabled = true;
     private volatile boolean voicePoll = false;
     private Thread voicePollThread;
+    private TelephonyManager telephony;
+    private Object callListener;
+    private volatile boolean callActive = false;
+    private static final int REQ_PHONE_STATE = 2;
     private Switch voiceSwitch;
     private int heartbeatLogs = 0;
 
@@ -197,13 +205,112 @@ public class MainActivity extends Activity {
         };
         try {
             audio.registerAudioRecordingCallback(recCb, ui);
-            log("语音检测: 已启用（麦克风 + 通话）");
+            log("语音检测: 已启用（麦克风回调，无需录音权限）");
         } catch (Throwable t) {
             recCb = null;
             log("语音检测不可用: " + t.getClass().getSimpleName());
         }
-        // A call does not change the recording configuration, so the callback
-        // above never fires for it.  Poll the audio mode once per second.
+        initCallDetection();
+    }
+
+    /** Call state is event-driven when READ_PHONE_STATE is granted. */
+    private void initCallDetection() {
+        telephony = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        if (telephony == null) {
+            return;
+        }
+        if (hasPhonePermission()) {
+            registerCallListener();
+        } else {
+            log("通话检测: 未授权，开自动调速时会请求电话权限");
+        }
+    }
+
+    private boolean hasPhonePermission() {
+        return checkSelfPermission(Manifest.permission.READ_PHONE_STATE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void registerCallListener() {
+        if (telephony == null || callListener != null || !hasPhonePermission()) {
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                CallStateCb cb = new CallStateCb();
+                telephony.registerTelephonyCallback(getMainExecutor(), cb);
+                callListener = cb;
+            } else {
+                PhoneStateListener psl = new PhoneStateListener() {
+                    @Override
+                    public void onCallStateChanged(int state, String phoneNumber) {
+                        onCallState(state);
+                    }
+                };
+                telephony.listen(psl, PhoneStateListener.LISTEN_CALL_STATE);
+                callListener = psl;
+            }
+            log("通话检测: 事件驱动已启用");
+        } catch (Throwable t) {
+            callListener = null;
+            log("通话检测注册失败: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private void unregisterCallListener() {
+        Object cl = callListener;
+        callListener = null;
+        if (cl == null || telephony == null) {
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 31 && cl instanceof TelephonyCallback) {
+                telephony.unregisterTelephonyCallback((TelephonyCallback) cl);
+            } else if (cl instanceof PhoneStateListener) {
+                telephony.listen((PhoneStateListener) cl, PhoneStateListener.LISTEN_NONE);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void onCallState(int state) {
+        callActive = state == TelephonyManager.CALL_STATE_RINGING
+                || state == TelephonyManager.CALL_STATE_OFFHOOK;
+        onVoiceState(micActive || callActive || isCallMode());
+    }
+
+    private void syncCallState() {
+        if (telephony == null || !hasPhonePermission()) {
+            return;
+        }
+        try {
+            onCallState(telephony.getCallState());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQ_PHONE_STATE) {
+            return;
+        }
+        if (hasPhonePermission()) {
+            stopVoiceWatch();
+            registerCallListener();
+            syncCallState();
+            log("通话检测: 已启用（事件驱动，0 轮询）");
+        } else {
+            log("未授予电话权限，通话检测退回 1 秒轮询");
+            startVoiceWatch();
+        }
+    }
+
+    /** Fallback poll, used only when READ_PHONE_STATE is denied. */
+    private void startVoiceWatch() {
+        if (voicePoll || !autoEnabled || !voicePauseEnabled || hasPhonePermission()) {
+            return;
+        }
         voicePoll = true;
         voicePollThread = new Thread(new Runnable() {
             public void run() {
@@ -220,6 +327,24 @@ public class MainActivity extends Activity {
             }
         }, "voice-poll");
         voicePollThread.start();
+    }
+
+    private void stopVoiceWatch() {
+        voicePoll = false;
+        Thread t = voicePollThread;
+        voicePollThread = null;
+        if (t != null) {
+            t.interrupt();
+        }
+    }
+
+    @android.annotation.TargetApi(31)
+    private class CallStateCb extends TelephonyCallback
+            implements TelephonyCallback.CallStateListener {
+        @Override
+        public void onCallStateChanged(int state) {
+            onCallState(state);
+        }
     }
 
     private boolean isCallMode() {
@@ -315,12 +440,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        voicePoll = false;
-        Thread vp = voicePollThread;
-        voicePollThread = null;
-        if (vp != null) {
-            vp.interrupt();
-        }
+        stopVoiceWatch();
+        unregisterCallListener();
         if (audio != null && recCb != null) {
             try {
                 audio.unregisterAudioRecordingCallback(recCb);
@@ -920,6 +1041,14 @@ public class MainActivity extends Activity {
         }
         autoEnabled = true;
         autoTarget = 0;
+        if (hasPhonePermission()) {
+            registerCallListener();
+            syncCallState();
+        } else {
+            requestPermissions(new String[] {Manifest.permission.READ_PHONE_STATE},
+                    REQ_PHONE_STATE);
+            startVoiceWatch();
+        }
         setManualEnabled(false);
         Intent svc = new Intent(this, KeepAliveService.class);
         if (Build.VERSION.SDK_INT >= 26) {
@@ -944,6 +1073,7 @@ public class MainActivity extends Activity {
         autoEnabled = false;
         autoThread = null;
         voicePaused = false;
+        stopVoiceWatch();
         setManualEnabled(true);
         stopService(new Intent(this, KeepAliveService.class));
         if (was) {
