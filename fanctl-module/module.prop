@@ -1,6 +1,6 @@
 id=stream-fanctl
 name=Stream 风扇控制（独立版）
-version=v1.3.9
-versionCode=14
+version=v1.4.0
+versionCode=15
 author=DeepSeek Harness
-description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）+ 四合一接口检测。v1.3.9：通话检测改为事件驱动（READ_PHONE_STATE + TelephonyCallback，0 轮询）；未授权时自动退回 1 秒轮询；麦克风检测仍为系统回调、无需录音权限。
+description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）+ 四合一接口检测。v1.4.0：修复挂断电话后仍显示“语音输入中”、必须重启自动调速才能恢复的问题——挂断时清除残留录音状态并立即恢复风扇，另加仅在通话期间运行的看门狗兜底。通话检测仍为事件驱动（READ_PHONE_STATE）。

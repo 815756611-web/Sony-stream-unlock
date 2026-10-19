@@ -127,6 +127,7 @@ public class MainActivity extends Activity {
     private TelephonyManager telephony;
     private Object callListener;
     private volatile boolean callActive = false;
+    private volatile boolean callWatchdog = false;
     private static final int REQ_PHONE_STATE = 2;
     private Switch voiceSwitch;
     private int heartbeatLogs = 0;
@@ -274,9 +275,62 @@ public class MainActivity extends Activity {
     }
 
     private void onCallState(int state) {
-        callActive = state == TelephonyManager.CALL_STATE_RINGING
+        boolean active = state == TelephonyManager.CALL_STATE_RINGING
                 || state == TelephonyManager.CALL_STATE_OFFHOOK;
-        onVoiceState(micActive || callActive || isCallMode());
+        callActive = active;
+        if (!active) {
+            // The call may have left a stale "recording" config behind, and its
+            // callback may never fire again.  Clear it and resume immediately.
+            micActive = false;
+            onVoiceState(false);
+            return;
+        }
+        onVoiceState(true);
+        startCallWatchdog();
+    }
+
+    /**
+     * While a call is active, re-check the real call state every 2 s.  This is
+     * not a general poll: it only runs between RINGING/OFFHOOK and hang-up, and
+     * exists because some ROMs do not deliver a reliable CALL_STATE_IDLE event.
+     */
+    private void startCallWatchdog() {
+        if (callWatchdog) {
+            return;
+        }
+        callWatchdog = true;
+        new Thread(new Runnable() {
+            public void run() {
+                while (callWatchdog && autoEnabled) {
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    if (!callWatchdog) {
+                        break;
+                    }
+                    int st = callStateNow();
+                    boolean inCall = st == TelephonyManager.CALL_STATE_RINGING
+                            || st == TelephonyManager.CALL_STATE_OFFHOOK;
+                    if (!inCall && !micActive) {
+                        onVoiceState(false);
+                        break;
+                    }
+                }
+                callWatchdog = false;
+            }
+        }, "call-watchdog").start();
+    }
+
+    private int callStateNow() {
+        if (telephony != null && hasPhonePermission()) {
+            try {
+                return telephony.getCallState();
+            } catch (Throwable ignored) {
+            }
+        }
+        return TelephonyManager.CALL_STATE_IDLE;
     }
 
     private void syncCallState() {
@@ -1073,6 +1127,7 @@ public class MainActivity extends Activity {
         autoEnabled = false;
         autoThread = null;
         voicePaused = false;
+        callWatchdog = false;
         stopVoiceWatch();
         setManualEnabled(true);
         stopService(new Intent(this, KeepAliveService.class));
