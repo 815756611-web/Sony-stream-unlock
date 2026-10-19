@@ -1,0 +1,6 @@
+id=stream-fanctl
+name=Stream 风扇控制（独立版）
+version=v1.3.6
+versionCode=11
+author=DeepSeek Harness
+description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）+ 四合一接口检测。v1.3.6：自动调速新增「语音输入时暂停风扇」（检测到麦克风占用/通话时风扇归零，结束后恢复）；保活日志改名为「程序保活心跳」并每 10 秒记录一次。

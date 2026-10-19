@@ -1,0 +1,21 @@
+# build output
+fanctl/build/
+build/
+*.class
+*.dex
+
+# binaries / release artifacts
+*.apk
+*.apk.idsig
+*.zip
+*.jks
+*.keystore
+
+# logs
+*.log
+
+# editor / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,6 @@
+id=stream-diag
+name=Xperia Stream 四合一检测
+version=v1.0.0
+versionCode=1
+author=DeepSeek Harness
+description=检测 Xperia Stream 的充电功率(W)、3.5mm 音频、HDMI 输出速率(Gbps) 与网卡当前网速(Mbps)，判断是否正常工作并输出日志到 /sdcard/Download 与 logcat。
