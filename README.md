@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File fanctl/build.ps1 `
 
 ## 免责声明
 
-仅供学习与研究使用。刷机、改机有风险，请自行承担。
+仅供学习与研究使用。刷机、改机有风险，请备好救砖模块。
 
 ## License
 
