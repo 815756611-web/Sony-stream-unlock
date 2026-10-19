@@ -115,8 +115,11 @@ public class MainActivity extends Activity {
     // voice-input pause (auto mode only)
     private AudioManager audio;
     private AudioManager.AudioRecordingCallback recCb;
+    private volatile boolean micActive = false;
     private volatile boolean voicePaused = false;
     private boolean voicePauseEnabled = true;
+    private volatile boolean voicePoll = false;
+    private Thread voicePollThread;
     private Switch voiceSwitch;
     private int heartbeatLogs = 0;
 
@@ -179,7 +182,7 @@ public class MainActivity extends Activity {
         initVoiceDetection();
     }
 
-    /** Pauses the fan while any app is using the microphone (voice input). */
+    /** Pauses the fan while any app is using the microphone or a call is active. */
     private void initVoiceDetection() {
         audio = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         if (audio == null) {
@@ -188,22 +191,45 @@ public class MainActivity extends Activity {
         recCb = new AudioManager.AudioRecordingCallback() {
             @Override
             public void onRecordingConfigChanged(List<AudioRecordingConfiguration> configs) {
-                boolean active = configs != null && !configs.isEmpty();
-                int mode = audio.getMode();
-                if (mode == AudioManager.MODE_IN_CALL
-                        || mode == AudioManager.MODE_IN_COMMUNICATION) {
-                    active = true;
-                }
-                onVoiceState(active);
+                micActive = configs != null && !configs.isEmpty();
+                onVoiceState(micActive || isCallMode());
             }
         };
         try {
             audio.registerAudioRecordingCallback(recCb, ui);
-            log("语音检测: 已启用");
+            log("语音检测: 已启用（麦克风 + 通话）");
         } catch (Throwable t) {
             recCb = null;
             log("语音检测不可用: " + t.getClass().getSimpleName());
         }
+        // A call does not change the recording configuration, so the callback
+        // above never fires for it.  Poll the audio mode once per second.
+        voicePoll = true;
+        voicePollThread = new Thread(new Runnable() {
+            public void run() {
+                while (voicePoll) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    if (voicePoll) {
+                        onVoiceState(micActive || isCallMode());
+                    }
+                }
+            }
+        }, "voice-poll");
+        voicePollThread.start();
+    }
+
+    private boolean isCallMode() {
+        if (audio == null) {
+            return false;
+        }
+        int m = audio.getMode();
+        return m == AudioManager.MODE_IN_CALL
+                || m == AudioManager.MODE_IN_COMMUNICATION
+                || m == AudioManager.MODE_CALL_SCREENING;
     }
 
     private void onVoiceState(boolean active) {
@@ -289,6 +315,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        voicePoll = false;
+        Thread vp = voicePollThread;
+        voicePollThread = null;
+        if (vp != null) {
+            vp.interrupt();
+        }
         if (audio != null && recCb != null) {
             try {
                 audio.unregisterAudioRecordingCallback(recCb);
