@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stream 风扇控制</string>
+    <string name="camera_key_service_desc">在选中的应用内按相机键时触发系统截屏</string>
+</resources>

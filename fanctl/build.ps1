@@ -46,17 +46,33 @@ Write-Host "sources:"; $sources | ForEach-Object { Write-Host "  $_" }
 if ($LASTEXITCODE -ne 0) { throw "javac failed" }
 
 # 2) dex
-$classes = Get-ChildItem -Path (Join-Path $build "classes") -Recurse -Filter *.class | ForEach-Object { $_.FullName }
-& $d8 --lib $AndroidJar --min-api 29 --output (Join-Path $build "dex") $classes
+# Pack classes into a jar first: passing hundreds of .class paths exceeds the
+# Windows command line limit once the UI grows.
+$jar = Join-Path $build "classes.jar"
+$jarTool = Find-One $JavaHome "jar.exe"
+& $jarTool cf $jar -C (Join-Path $build "classes") .
+if ($LASTEXITCODE -ne 0) { throw "jar failed" }
+& $d8 --lib $AndroidJar --min-api 29 --output (Join-Path $build "dex") $jar
 if ($LASTEXITCODE -ne 0) { throw "d8 failed" }
 $dexFile = Join-Path $build "dex\classes.dex"
 if (-not (Test-Path $dexFile)) { throw "classes.dex not produced" }
 
 # 3) link resources/manifest
 $baseApk = Join-Path $build "base.apk"
+$resDir = Join-Path $Src "res"
+$resZip = $null
+if (Test-Path $resDir) {
+    $resZip = Join-Path $build "res.zip"
+    & $aapt2 compile --dir $resDir -o $resZip
+    if ($LASTEXITCODE -ne 0) { throw "aapt2 compile failed" }
+}
 Push-Location $Src
 try {
-    & $aapt2 link -o $baseApk --manifest "AndroidManifest.xml" -I $AndroidJar
+    if ($null -ne $resZip) {
+        & $aapt2 link -o $baseApk --manifest "AndroidManifest.xml" -I $AndroidJar --auto-add-overlay -R $resZip
+    } else {
+        & $aapt2 link -o $baseApk --manifest "AndroidManifest.xml" -I $AndroidJar
+    }
     if ($LASTEXITCODE -ne 0) { throw "aapt2 link failed" }
 } finally {
     Pop-Location

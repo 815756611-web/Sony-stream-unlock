@@ -1,20 +1,24 @@
 package com.xperiastream.fanctl;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.Manifest;
 import android.content.BroadcastReceiver;
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
 import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
@@ -31,18 +35,23 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -54,8 +63,10 @@ import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 /**
  * Standalone controller for the Sony Xperia Stream (USB 054C:0E6D).
  *
@@ -81,6 +92,7 @@ public class MainActivity extends Activity {
     private int C_RED;
     private int C_RED_BG;
     private int C_GRAY_BTN;
+    private int C_OUTLINE;
 
     private UsbManager usb;
     private UsbDevice device;
@@ -157,6 +169,23 @@ public class MainActivity extends Activity {
     private TextView profileHint;
     private final List<Float> chargeHist = new ArrayList<Float>();
 
+    // v2.1 controls
+    private Switch fanOnSwitch;
+    private boolean fanOn = true;
+    private TextView speedValueView;
+    private TextView hdmiModeValueView;
+    private TextView fwView;
+    private SeekBar mediaBar;
+    private SeekBar callBar;
+    private TextView camAppsView;
+    private Switch camSwitch;
+    private TextView camStatusView;
+    private int[] customTemps = {34, 36, 38, 40, 42};
+    private int[] customSpeeds = {3900, 4800, 5700, 6600, 7500};
+    private int hdmiModeId = -1;
+    private volatile String lastHdmiFw = null;
+    private static final int[] ALL_SPEEDS = {0, 4800, 5700, 6600, 7500, 8400, 9300, 10200};
+
     private static final String[] PROFILE_IDS = {"quiet", "balanced", "performance", "max"};
     private static final String[] PROFILE_NAMES = {"静音", "均衡", "性能", "极速"};
     private static final float[][] PROFILE_THRESHOLDS = {
@@ -227,7 +256,10 @@ public class MainActivity extends Activity {
         hdmiEnabled = prefs.getBoolean("hdmi", true);
         autoConnect = prefs.getBoolean("autoConnect", true);
         voicePauseEnabled = prefs.getBoolean("voicePause", true);
+        fanOn = prefs.getBoolean("fanOn", true);
         profileId = prefs.getString("profile", "balanced");
+        customTemps = splitInts(prefs.getString("customTemps", null), customTemps);
+        customSpeeds = splitInts(prefs.getString("customSpeeds", null), customSpeeds);
         applyPalette(darkMode);
         installCrashHandler();
         try {
@@ -774,7 +806,8 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------ UI v2
 
-    private View buildUi() {
+    @Deprecated
+    private View buildUiV2() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(C_BG);
 
@@ -1077,13 +1110,31 @@ public class MainActivity extends Activity {
             profileBtns[i].setBackground(bg(on ? C_PRIMARY : C_GRAY_BTN, 12));
         }
         if (profileHint != null) {
-            float[] th = PROFILE_THRESHOLDS[active];
-            int[] sp = PROFILE_SPEEDS[active];
+            float[] th = activeThresholds();
+            int[] sp = activeSpeeds();
+            String name = active < 0 ? "自定义" : PROFILE_NAMES[active];
             profileHint.setText(String.format(Locale.US,
                     "%s：%.0f / %.0f / %.0f / %.0f / %.0f °C → %d / %d / %d / %d / %d rpm",
-                    PROFILE_NAMES[active], th[0], th[1], th[2], th[3], th[4],
+                    name, th[0], th[1], th[2], th[3], th[4],
                     sp[0], sp[1], sp[2], sp[3], sp[4]));
         }
+    }
+
+    private float[] activeThresholds() {
+        int idx = profileIndex();
+        if (idx < 0) {
+            float[] t = new float[5];
+            for (int i = 0; i < 5; i++) {
+                t[i] = customTemps[i];
+            }
+            return t;
+        }
+        return PROFILE_THRESHOLDS[idx];
+    }
+
+    private int[] activeSpeeds() {
+        int idx = profileIndex();
+        return idx < 0 ? customSpeeds : PROFILE_SPEEDS[idx];
     }
 
     private void setProfile(String id) {
@@ -1101,7 +1152,7 @@ public class MainActivity extends Activity {
                 return i;
             }
         }
-        return 1;
+        return -1;
     }
 
     private void setLed(boolean on) {
@@ -1109,7 +1160,7 @@ public class MainActivity extends Activity {
         if (prefs != null) {
             prefs.edit().putBoolean("led", on).apply();
         }
-        sendRaw(on ? ";0,07,01\n" : ";0,07,00\n");
+        sendRaw(on ? ";0,42,00\n" : ";0,42,01\n");
     }
 
     private void setHdmi(boolean on) {
@@ -1132,9 +1183,11 @@ public class MainActivity extends Activity {
         }
         rpmView.setText(autoEnabled ? String.valueOf(autoTarget) : String.valueOf(lastSentRpm));
         if (autoEnabled) {
+            int pi = profileIndex();
+            String pname = pi < 0 ? "自定义" : PROFILE_NAMES[pi];
             modeView.setText(voicePaused
                     ? "自动 · 语音/通话中，风扇暂停"
-                    : "自动 · " + PROFILE_NAMES[profileIndex()]);
+                    : "自动 · " + pname);
         } else {
             modeView.setText("手动");
         }
@@ -1288,6 +1341,723 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------ UI v2.1
+
+    private View buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(C_BG);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(18), dp(18), dp(30));
+        scroll.addView(root);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.addView(text("Xperia Stream", 30f, C_TEXT, true));
+        TextView sub = text("风扇 · 显示 · 音频 · 接口", 12f, C_MUTED, false);
+        sub.setPadding(0, dp(2), 0, 0);
+        titles.addView(sub);
+        header.addView(titles, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        Button themeBtn = outlineButton(darkMode ? "☀" : "☾", new View.OnClickListener() {
+            public void onClick(View v) {
+                darkMode = !darkMode;
+                prefs.edit().putBoolean("dark", darkMode).apply();
+                applyPalette(darkMode);
+                try {
+                    setContentView(buildUi());
+                } catch (Throwable t) {
+                    Log.e(TAG, "rebuild ui failed", t);
+                }
+            }
+        });
+        header.addView(themeBtn, new LinearLayout.LayoutParams(dp(46), dp(42)));
+        root.addView(header, rowLp());
+
+        // connection card
+        LinearLayout conn = new LinearLayout(this);
+        conn.setOrientation(LinearLayout.VERTICAL);
+        conn.setBackground(bg(C_PRIMARY_SOFT, 22));
+        conn.setPadding(dp(16), dp(14), dp(16), dp(14));
+        LinearLayout.LayoutParams connLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        connLp.bottomMargin = dp(14);
+        conn.setLayoutParams(connLp);
+
+        statusChip = text("正在扫描…", 13f, C_TEXT, true);
+        statusChip.setPadding(dp(12), dp(5), dp(12), dp(5));
+        statusChip.setBackground(bg(C_CARD, 16));
+        conn.addView(statusChip, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView devLine = text("连接 Xperia Stream 后可调整以下设置", 12f, C_TEXT, false);
+        devLine.setPadding(0, dp(8), 0, dp(10));
+        conn.addView(devLine);
+
+        LinearLayout connRow = new LinearLayout(this);
+        connRow.setOrientation(LinearLayout.HORIZONTAL);
+        connRow.addView(action("刷新", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                scan();
+            }
+        }), rowBtnLp());
+        connRow.addView(action("连接", true, new View.OnClickListener() {
+            public void onClick(View v) {
+                scan();
+            }
+        }), rowBtnLp());
+        conn.addView(connRow);
+        root.addView(conn);
+
+        // ---- cooling ----
+        root.addView(section("散热"));
+        LinearLayout cool = card();
+
+        fanOnSwitch = new Switch(this);
+        fanOnSwitch.setChecked(fanOn);
+        fanOnSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                fanOn = v;
+                prefs.edit().putBoolean("fanOn", v).apply();
+                sendRaw(v ? ";0,0C,00\n" : ";0,0C,01\n");
+            }
+        });
+        cool.addView(toggleRow("启用风扇", fanOnSwitch));
+
+        ledSwitch = new Switch(this);
+        ledSwitch.setChecked(ledEnabled);
+        ledSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                setLed(v);
+            }
+        });
+        cool.addView(toggleRow("启用风扇灯效", ledSwitch));
+
+        speedValueView = text("5700 RPM", 16f, C_TEXT, false);
+        cool.addView(selectorRow("风扇转速", speedValueView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showSpeedDialog();
+            }
+        }));
+
+        Button readSpeed = outlineButton("读取转速", new View.OnClickListener() {
+            public void onClick(View v) {
+                sendRaw(";0,03,00\n");
+            }
+        });
+        LinearLayout.LayoutParams rbLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        rbLp.topMargin = dp(10);
+        cool.addView(readSpeed, rbLp);
+        root.addView(cool);
+
+        // ---- auto ----
+        root.addView(section("自动调速"));
+        LinearLayout autoCard = card();
+
+        LinearLayout autoHead = new LinearLayout(this);
+        autoHead.setOrientation(LinearLayout.HORIZONTAL);
+        autoHead.setGravity(Gravity.CENTER_VERTICAL);
+        autoHead.addView(text("自动调速", 14f, C_TEXT, true), new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        autoSwitch = new Switch(this);
+        autoSwitch.setChecked(autoEnabled);
+        autoSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (isChecked) {
+                    startAuto();
+                } else {
+                    stopAuto(true);
+                }
+            }
+        });
+        autoHead.addView(autoSwitch);
+        autoCard.addView(autoHead);
+
+        tempView = text("温度 --", 24f, C_TEXT, true);
+        tempView.setPadding(0, dp(8), 0, dp(2));
+        autoCard.addView(tempView);
+
+        targetView = text("目标转速 --", 12f, C_MUTED, false);
+        targetView.setPadding(0, 0, 0, dp(8));
+        autoCard.addView(targetView);
+
+        tempBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        tempBar.setMax(10200);
+        tempBar.setProgress(0);
+        tempBar.setProgressTintList(android.content.res.ColorStateList.valueOf(C_PRIMARY));
+        tempBar.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(C_GRAY_BTN));
+        autoCard.addView(tempBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(8)));
+
+        LinearLayout profRow = new LinearLayout(this);
+        profRow.setOrientation(LinearLayout.HORIZONTAL);
+        profRow.setPadding(0, dp(10), 0, 0);
+        for (int i = 0; i < PROFILE_IDS.length; i++) {
+            final int idx = i;
+            Button b = action(PROFILE_NAMES[i], false, new View.OnClickListener() {
+                public void onClick(View v) {
+                    setProfile(PROFILE_IDS[idx]);
+                }
+            });
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+            profileBtns[i] = b;
+            profRow.addView(b, speedLp());
+        }
+        autoCard.addView(profRow);
+
+        profileHint = text("", 11f, C_MUTED, false);
+        profileHint.setPadding(0, dp(8), 0, 0);
+        autoCard.addView(profileHint);
+
+        Button editTpl = outlineButton("编辑模板（温度 ↔ 转速）", new View.OnClickListener() {
+            public void onClick(View v) {
+                showTemplateEditor();
+            }
+        });
+        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        etLp.topMargin = dp(8);
+        autoCard.addView(editTpl, etLp);
+
+        voiceSwitch = new Switch(this);
+        voiceSwitch.setChecked(voicePauseEnabled);
+        voiceSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                voicePauseEnabled = isChecked;
+                prefs.edit().putBoolean("voicePause", isChecked).apply();
+                if (!isChecked && voicePaused) {
+                    voicePaused = false;
+                    sendSpeed(autoTarget, true);
+                    log("语音暂停已关闭，恢复 " + autoTarget + " rpm");
+                }
+            }
+        });
+        autoCard.addView(toggleRow("语音 / 通话时暂停风扇", voiceSwitch));
+        root.addView(autoCard);
+
+        // ---- display & audio ----
+        root.addView(section("显示与音频"));
+        LinearLayout av = card();
+
+        hdmiSwitch = new Switch(this);
+        hdmiSwitch.setChecked(hdmiEnabled);
+        hdmiSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                setHdmi(v);
+            }
+        });
+        av.addView(toggleRow("启用 HDMI 视频和音频输出", hdmiSwitch));
+
+        hdmiModeValueView = text("自动", 16f, C_TEXT, false);
+        av.addView(selectorRow("显示模式", hdmiModeValueView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showDisplayModeDialog();
+            }
+        }));
+
+        fwView = text("固件版本 --", 12f, C_MUTED, false);
+        fwView.setPadding(0, dp(8), 0, 0);
+        av.addView(fwView);
+
+        Button fwBtn = outlineButton("读取 HDMI 固件版本", new View.OnClickListener() {
+            public void onClick(View v) {
+                queryHdmiFw();
+            }
+        });
+        LinearLayout.LayoutParams fwLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        fwLp.topMargin = dp(8);
+        av.addView(fwBtn, fwLp);
+
+        av.addView(sliderRow("媒体音量", true));
+        av.addView(sliderRow("通话音量", false));
+        root.addView(av);
+
+        // ---- camera key ----
+        root.addView(section("相机键截图"));
+        LinearLayout cam = card();
+        camSwitch = new Switch(this);
+        camSwitch.setChecked(prefs.getBoolean("camShot", false));
+        camSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                prefs.edit().putBoolean("camShot", v).apply();
+                updateCamStatus();
+            }
+        });
+        cam.addView(toggleRow("启用相机键截图", camSwitch));
+
+        camAppsView = text("已选应用：无", 12f, C_MUTED, false);
+        camAppsView.setPadding(0, dp(6), 0, 0);
+        cam.addView(camAppsView);
+
+        camStatusView = text("", 12f, C_MUTED, false);
+        camStatusView.setPadding(0, dp(4), 0, 0);
+        cam.addView(camStatusView);
+
+        Button pickApps = outlineButton("选择应用（可多选）", new View.OnClickListener() {
+            public void onClick(View v) {
+                showAppPicker();
+            }
+        });
+        LinearLayout.LayoutParams paLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        paLp.topMargin = dp(8);
+        cam.addView(pickApps, paLp);
+
+        Button openA11y = outlineButton("打开无障碍设置", new View.OnClickListener() {
+            public void onClick(View v) {
+                openAccessibilitySettings();
+            }
+        });
+        LinearLayout.LayoutParams oaLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        oaLp.topMargin = dp(8);
+        cam.addView(openA11y, oaLp);
+        root.addView(cam);
+
+        // ---- detection ----
+        root.addView(section("接口检测"));
+        LinearLayout detCard = card();
+        String[] names = {"充电", "3.5mm", "HDMI", "网卡"};
+        for (int i = 0; i < 4; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(6), 0, 0);
+            TextView label = text(names[i], 13f, C_TEXT, true);
+            label.setWidth(dp(52));
+            row.addView(label);
+            TextView value = text("--", 11f, C_MUTED, false);
+            LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            vp.rightMargin = dp(6);
+            row.addView(value, vp);
+            TextView chip = text("--", 10f, C_MUTED, true);
+            chip.setPadding(dp(8), dp(3), dp(8), dp(3));
+            chip.setBackground(bg(C_GRAY_BTN, 12));
+            row.addView(chip);
+            detValue[i] = value;
+            detStatus[i] = chip;
+            detCard.addView(row);
+        }
+        Button export = outlineButton("导出检测报告", new View.OnClickListener() {
+            public void onClick(View v) {
+                exportReport();
+            }
+        });
+        LinearLayout.LayoutParams exLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        exLp.topMargin = dp(10);
+        detCard.addView(export, exLp);
+        root.addView(detCard);
+
+        // ---- charge ----
+        root.addView(section("充电监控"));
+        LinearLayout chargeCard = card();
+        chargeWatts = text("-- W", 30f, C_TEXT, true);
+        chargeCard.addView(chargeWatts);
+        chargeDetail = text("等待数据…", 12f, C_MUTED, false);
+        chargeCard.addView(chargeDetail);
+        spark = new SparkView(this, C_PRIMARY, C_GRAY_BTN);
+        LinearLayout.LayoutParams spLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        spLp.topMargin = dp(6);
+        chargeCard.addView(spark, spLp);
+        chargeTemp = text("电池温度 --", 12f, C_MUTED, false);
+        chargeTemp.setPadding(0, dp(6), 0, 0);
+        chargeCard.addView(chargeTemp);
+        root.addView(chargeCard);
+
+        // ---- log ----
+        root.addView(section("日志"));
+        LinearLayout logCard = card();
+        logView = text("", 10f, C_MUTED, false);
+        logView.setTypeface(android.graphics.Typeface.MONOSPACE);
+        logScroll = new ScrollView(this);
+        logScroll.addView(logView);
+        logCard.addView(logScroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(120)));
+        root.addView(logCard);
+
+        updateProfileUi();
+        refreshRpmUi();
+        updateVolumeUi();
+        updateCamStatus();
+        return scroll;
+    }
+
+    private void updateCamStatus() {
+        if (camAppsView == null) {
+            return;
+        }
+        Set<String> apps = prefs.getStringSet("camApps", null);
+        camAppsView.setText("已选应用：" + (apps == null || apps.isEmpty() ? "无" : apps.size() + " 个"));
+        if (camStatusView != null) {
+            boolean on = isAccessibilityEnabled();
+            camStatusView.setText(on ? "无障碍服务：已启用" : "无障碍服务：未启用，点下方按钮开启");
+            camStatusView.setTextColor(on ? C_GREEN : C_RED);
+        }
+    }
+
+    private boolean isAccessibilityEnabled() {
+        String enabled = Settings.Secure.getString(getContentResolver(),
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return enabled != null && enabled.contains(getPackageName() + "/")
+                && enabled.contains("CameraKeyService");
+    }
+
+    private void openAccessibilitySettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        } catch (Throwable t) {
+            log("打开无障碍设置失败: " + t);
+        }
+    }
+
+    private void showAppPicker() {
+        final PackageManager pm = getPackageManager();
+        List<ApplicationInfo> infos = pm.getInstalledApplications(0);
+        final List<String> pkgs = new ArrayList<String>();
+        final List<String> labels = new ArrayList<String>();
+        for (ApplicationInfo ai : infos) {
+            if (pm.getLaunchIntentForPackage(ai.packageName) == null) {
+                continue;
+            }
+            pkgs.add(ai.packageName);
+            labels.add(pm.getApplicationLabel(ai).toString());
+        }
+        Integer[] order = new Integer[pkgs.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        java.util.Arrays.sort(order, new java.util.Comparator<Integer>() {
+            public int compare(Integer a, Integer b) {
+                return labels.get(a).compareToIgnoreCase(labels.get(b));
+            }
+        });
+        final String[] names = new String[order.length];
+        final String[] pkgArr = new String[order.length];
+        for (int i = 0; i < order.length; i++) {
+            names[i] = labels.get(order[i]) + "  (" + pkgs.get(order[i]) + ")";
+            pkgArr[i] = pkgs.get(order[i]);
+        }
+        Set<String> saved = prefs.getStringSet("camApps", null);
+        final boolean[] checked = new boolean[order.length];
+        for (int i = 0; i < order.length; i++) {
+            checked[i] = saved != null && saved.contains(pkgArr[i]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择应用（按相机键截屏）")
+                .setMultiChoiceItems(names, checked, new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface d, int which, boolean isChecked) {
+                        checked[which] = isChecked;
+                    }
+                })
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        Set<String> out = new HashSet<String>();
+                        for (int i = 0; i < checked.length; i++) {
+                            if (checked[i]) {
+                                out.add(pkgArr[i]);
+                            }
+                        }
+                        prefs.edit().putStringSet("camApps", out).apply();
+                        updateCamStatus();
+                        log("相机键截图应用: " + out.size() + " 个");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private TextView section(String s) {
+        TextView t = text(s, 13f, C_MUTED, false);
+        t.setPadding(dp(2), dp(12), 0, dp(6));
+        return t;
+    }
+
+    private Button outlineButton(String s, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f);
+        b.setTextColor(C_TEXT);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(Color.TRANSPARENT);
+        d.setCornerRadius(dp(14));
+        d.setStroke(dp(1), C_OUTLINE);
+        b.setBackground(d);
+        b.setOnClickListener(l);
+        b.setMinHeight(dp(44));
+        return b;
+    }
+
+    private View selectorRow(String label, TextView value, View.OnClickListener l) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(Color.TRANSPARENT);
+        d.setCornerRadius(dp(14));
+        d.setStroke(dp(1), C_OUTLINE);
+        box.setBackground(d);
+        box.setPadding(dp(14), dp(8), dp(14), dp(8));
+        box.setOnClickListener(l);
+        TextView lab = text(label, 11f, C_MUTED, false);
+        box.addView(lab);
+        box.addView(value);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        p.topMargin = dp(8);
+        box.setLayoutParams(p);
+        return box;
+    }
+
+    private View sliderRow(String label, final boolean music) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(10), 0, 0);
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView val = text("", 11f, C_MUTED, false);
+        head.addView(text(label, 13f, C_TEXT, false), new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        head.addView(val);
+        box.addView(head);
+        SeekBar bar = new SeekBar(this);
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (am != null) {
+            int stream = music ? AudioManager.STREAM_MUSIC : AudioManager.STREAM_VOICE_CALL;
+            bar.setMax(am.getStreamMaxVolume(stream));
+            bar.setProgress(am.getStreamVolume(stream));
+            val.setText(bar.getProgress() + " / " + bar.getMax());
+        }
+        if (music) {
+            mediaBar = bar;
+        } else {
+            callBar = bar;
+        }
+        final TextView fv = val;
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                fv.setText(progress + " / " + sb.getMax());
+                if (fromUser) {
+                    AudioManager am2 = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (am2 != null) {
+                        am2.setStreamVolume(music ? AudioManager.STREAM_MUSIC
+                                : AudioManager.STREAM_VOICE_CALL, progress, 0);
+                    }
+                }
+            }
+            public void onStartTrackingTouch(SeekBar sb) {
+            }
+            public void onStopTrackingTouch(SeekBar sb) {
+            }
+        });
+        box.addView(bar);
+        return box;
+    }
+
+    private void updateVolumeUi() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) {
+            return;
+        }
+        if (mediaBar != null) {
+            mediaBar.setMax(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+            mediaBar.setProgress(am.getStreamVolume(AudioManager.STREAM_MUSIC));
+        }
+        if (callBar != null) {
+            callBar.setMax(am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL));
+            callBar.setProgress(am.getStreamVolume(AudioManager.STREAM_VOICE_CALL));
+        }
+    }
+
+    private LinearLayout.LayoutParams rowBtnLp() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        p.setMargins(dp(3), 0, dp(3), 0);
+        return p;
+    }
+
+    private void showSpeedDialog() {
+        String[] labels = new String[ALL_SPEEDS.length];
+        for (int i = 0; i < ALL_SPEEDS.length; i++) {
+            labels[i] = ALL_SPEEDS[i] == 0 ? "关闭 (0 RPM)" : ALL_SPEEDS[i] + " RPM";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("风扇转速")
+                .setItems(labels, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        int rpm = ALL_SPEEDS[which];
+                        if (autoEnabled) {
+                            stopAuto(true);
+                        }
+                        sendSpeed(rpm, false);
+                        if (speedValueView != null) {
+                            speedValueView.setText(rpm == 0 ? "关闭" : rpm + " RPM");
+                        }
+                        d.dismiss();
+                    }
+                })
+                .show();
+    }
+
+    private void showDisplayModeDialog() {
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        Display ext = null;
+        if (dm != null) {
+            for (Display d : dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
+                if (d.getDisplayId() != Display.DEFAULT_DISPLAY) {
+                    ext = d;
+                    break;
+                }
+            }
+        }
+        if (ext == null) {
+            log("没有外接显示，先连接 HDMI");
+            return;
+        }
+        final Display display = ext;
+        final Display.Mode[] modes = display.getSupportedModes();
+        String[] labels = new String[modes.length];
+        for (int i = 0; i < modes.length; i++) {
+            labels[i] = modes[i].getPhysicalWidth() + "×" + modes[i].getPhysicalHeight()
+                    + " @ " + Math.round(modes[i].getRefreshRate()) + "Hz";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("显示模式")
+                .setItems(labels, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        applyDisplayMode(display, modes[which]);
+                        d.dismiss();
+                    }
+                })
+                .show();
+    }
+
+    private void applyDisplayMode(Display display, Display.Mode mode) {
+        try {
+            java.lang.reflect.Method m = Display.class.getMethod(
+                    "setUserPreferredDisplayMode", Display.Mode.class);
+            m.invoke(display, mode);
+            hdmiModeId = mode.getModeId();
+            if (hdmiModeValueView != null) {
+                hdmiModeValueView.setText(mode.getPhysicalWidth() + "×"
+                        + mode.getPhysicalHeight() + " @ " + Math.round(mode.getRefreshRate()) + "Hz");
+            }
+            log("显示模式: " + mode.getPhysicalWidth() + "×" + mode.getPhysicalHeight());
+        } catch (Throwable t) {
+            log("显示模式设置失败: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private void queryHdmiFw() {
+        lastHdmiFw = null;
+        sendRaw(";0,22\n");
+        ui.postDelayed(new Runnable() {
+            public void run() {
+                if (fwView != null) {
+                    fwView.setText(lastHdmiFw != null ? "固件版本 " + lastHdmiFw : "固件版本读取失败");
+                }
+            }
+        }, 800);
+    }
+
+    private void showTemplateEditor() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(4), dp(16), dp(4));
+        final Spinner[] temps = new Spinner[5];
+        final Spinner[] speeds = new Spinner[5];
+        String[] tempLabels = new String[19];
+        for (int i = 0; i < 19; i++) {
+            tempLabels[i] = (28 + i) + " °C";
+        }
+        String[] speedLabels = new String[ALL_SPEEDS.length];
+        for (int i = 0; i < ALL_SPEEDS.length; i++) {
+            speedLabels[i] = ALL_SPEEDS[i] + " rpm";
+        }
+        for (int i = 0; i < 5; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(2), 0, dp(2));
+            temps[i] = new Spinner(this);
+            temps[i].setAdapter(new ArrayAdapter<String>(this,
+                    android.R.layout.simple_spinner_dropdown_item, tempLabels));
+            temps[i].setSelection(Math.max(0, Math.min(18, customTemps[i] - 28)));
+            row.addView(temps[i], new LinearLayout.LayoutParams(0, dp(48), 1f));
+            row.addView(text("→", 14f, C_MUTED, false));
+            speeds[i] = new Spinner(this);
+            speeds[i].setAdapter(new ArrayAdapter<String>(this,
+                    android.R.layout.simple_spinner_dropdown_item, speedLabels));
+            int sel = 0;
+            for (int k = 0; k < ALL_SPEEDS.length; k++) {
+                if (ALL_SPEEDS[k] == customSpeeds[i]) {
+                    sel = k;
+                }
+            }
+            speeds[i].setSelection(sel);
+            row.addView(speeds[i], new LinearLayout.LayoutParams(0, dp(48), 1f));
+            box.addView(row);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("自定义模板")
+                .setView(box)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        for (int i = 0; i < 5; i++) {
+                            customTemps[i] = 28 + temps[i].getSelectedItemPosition();
+                            customSpeeds[i] = ALL_SPEEDS[speeds[i].getSelectedItemPosition()];
+                        }
+                        profileId = "custom";
+                        prefs.edit().putString("profile", "custom").apply();
+                        prefs.edit().putString("customTemps", joinInts(customTemps)).apply();
+                        prefs.edit().putString("customSpeeds", joinInts(customSpeeds)).apply();
+                        updateProfileUi();
+                        log("自定义模板已保存");
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private String joinInts(int[] arr) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arr.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(arr[i]);
+        }
+        return sb.toString();
+    }
+
+    private int[] splitInts(String s, int[] def) {
+        if (s == null || s.length() == 0) {
+            return def;
+        }
+        String[] parts = s.split(",");
+        if (parts.length != def.length) {
+            return def;
+        }
+        int[] out = new int[def.length];
+        try {
+            for (int i = 0; i < parts.length; i++) {
+                out[i] = Integer.parseInt(parts[i].trim());
+            }
+            return out;
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
     private Button speedButton(String label, final int rpm) {
         Button b = action(label, false, new View.OnClickListener() {
             public void onClick(View v) {
@@ -1393,6 +2163,7 @@ public class MainActivity extends Activity {
             C_RED = 0xFFB91C1C;
             C_RED_BG = 0xFFFEE2E2;
             C_GRAY_BTN = 0xFFE5E7EB;
+            C_OUTLINE = 0xFFCBD5E1;
         } else {
             C_BG = 0xFF0B0F14;
             C_CARD = 0xFF161B22;
@@ -1405,6 +2176,7 @@ public class MainActivity extends Activity {
             C_RED = 0xFFF85149;
             C_RED_BG = 0xFF3D1519;
             C_GRAY_BTN = 0xFF21262D;
+            C_OUTLINE = 0xFF30363D;
         }
     }
 
@@ -1554,6 +2326,15 @@ public class MainActivity extends Activity {
                         if (heartbeatLogs % 5 == 1) {
                             log("程序保活心跳 #" + heartbeatLogs + "  " + s);
                         }
+                    } else if (s.startsWith(";1,22,")) {
+                        lastHdmiFw = s.substring(6).trim();
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (fwView != null) {
+                                    fwView.setText("固件版本 " + lastHdmiFw);
+                                }
+                            }
+                        });
                     } else {
                         log("RX " + s);
                     }
@@ -1817,9 +2598,8 @@ public class MainActivity extends Activity {
      * battery temperature, which runs lower and much steadier than the SoC.
      */
     private int desiredByTemp(float t) {
-        int idx = profileIndex();
-        float[] th = PROFILE_THRESHOLDS[idx];
-        int[] sp = PROFILE_SPEEDS[idx];
+        float[] th = activeThresholds();
+        int[] sp = activeSpeeds();
         int hit = -1;
         for (int i = 0; i < th.length; i++) {
             if (t >= th[i]) {
@@ -1833,9 +2613,8 @@ public class MainActivity extends Activity {
 
     /** 2 °C of hysteresis per step, so the fan does not hunt. */
     private float lowerBound(int speed) {
-        int idx = profileIndex();
-        float[] th = PROFILE_THRESHOLDS[idx];
-        int[] sp = PROFILE_SPEEDS[idx];
+        float[] th = activeThresholds();
+        int[] sp = activeSpeeds();
         for (int i = 0; i < sp.length; i++) {
             if (sp[i] == speed) {
                 return th[i] - 2f;
