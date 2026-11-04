@@ -188,6 +188,9 @@ public class MainActivity extends Activity {
     private TextView camAppsView;
     private Switch camSwitch;
     private TextView camStatusView;
+    private TextView camSingleView;
+    private TextView camDoubleView;
+    private TextView camLongView;
     private Button customBtn;
     private int[] customTemps = {34, 36, 38, 40, 42};
     private int[] customSpeeds = {3900, 4800, 5700, 6600, 7500};
@@ -1734,17 +1737,45 @@ public class MainActivity extends Activity {
         return scroll;
     }
 
+    private static final String[] CAM_ACTIONS = {"shot", "open", "close", "none"};
+    private static final String[] CAM_LABELS = {"截图", "打开小窗", "关闭小窗", "无操作"};
+
+    private String actionLabel(String key) {
+        for (int i = 0; i < CAM_ACTIONS.length; i++) {
+            if (CAM_ACTIONS[i].equals(key)) {
+                return CAM_LABELS[i];
+            }
+        }
+        return "截图";
+    }
+
+    private void showCamActionDialog(final String prefKey, final TextView view, String title) {
+        String cur = prefs.getString(prefKey, "shot");
+        int checked = 0;
+        for (int i = 0; i < CAM_ACTIONS.length; i++) {
+            if (CAM_ACTIONS[i].equals(cur)) {
+                checked = i;
+            }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(CAM_LABELS, checked, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        prefs.edit().putString(prefKey, CAM_ACTIONS[which]).apply();
+                        view.setText(CAM_LABELS[which]);
+                        d.dismiss();
+                    }
+                })
+                .show();
+    }
+
     private void updateCamStatus() {
-        if (camAppsView == null) {
+        if (camStatusView == null) {
             return;
         }
-        Set<String> apps = prefs.getStringSet("camApps", null);
-        camAppsView.setText("已选应用：" + (apps == null || apps.isEmpty() ? "无" : apps.size() + " 个"));
-        if (camStatusView != null) {
-            boolean on = isAccessibilityEnabled();
-            camStatusView.setText(on ? "无障碍服务：已启用" : "无障碍服务：未启用，点下方按钮开启");
-            camStatusView.setTextColor(on ? C_GREEN : C_RED);
-        }
+        boolean on = isAccessibilityEnabled();
+        camStatusView.setText(on ? "无障碍服务：已启用" : "无障碍服务：未启用，点下方按钮开启");
+        camStatusView.setTextColor(on ? C_GREEN : C_RED);
     }
 
     private boolean isAccessibilityEnabled() {
@@ -1829,13 +1860,16 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(14), dp(16), dp(28));
         scroll.addView(root);
 
-        // ---- hero (edge to edge, no frame) ----
+        // ---- hero (framed) ----
         FrameLayout hero = new FrameLayout(this);
+        GradientDrawable hb = new GradientDrawable();
+        hb.setColor(C_PRIMARY_SOFT);
+        hb.setCornerRadius(dp(26));
+        hb.setStroke(dp(1), C_OUTLINE);
+        hero.setBackground(hb);
+        hero.setClipToOutline(true);
         LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(208));
-        heroLp.leftMargin = -dp(16);
-        heroLp.rightMargin = -dp(16);
-        heroLp.topMargin = -dp(14);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(190));
         heroLp.bottomMargin = dp(16);
 
         ImageView img = new ImageView(this);
@@ -2114,34 +2148,41 @@ public class MainActivity extends Activity {
 
         // ---- camera key ----
         LinearLayout cam = card();
-        cam.addView(headerRow("相机键截图", null));
+        cam.addView(headerRow("相机键绑定", null));
         camSwitch = new Switch(this);
-        camSwitch.setChecked(prefs.getBoolean("camShot", false));
+        camSwitch.setChecked(prefs.getBoolean("camBind", false));
         camSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton b, boolean v) {
-                prefs.edit().putBoolean("camShot", v).apply();
+                prefs.edit().putBoolean("camBind", v).apply();
                 updateCamStatus();
             }
         });
-        cam.addView(toggleRow("启用相机键截图", camSwitch));
+        cam.addView(toggleRow("启用相机键绑定（仅连接 Stream 时）", camSwitch));
 
-        camAppsView = text("已选应用：无", 12f, C_MUTED, false);
-        camAppsView.setPadding(0, dp(6), 0, 0);
-        cam.addView(camAppsView);
+        camSingleView = text(actionLabel(prefs.getString("camSingle", "shot")), 16f, C_TEXT, false);
+        cam.addView(selectorRow("单击相机键", camSingleView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showCamActionDialog("camSingle", camSingleView, "单击相机键");
+            }
+        }));
+
+        camDoubleView = text(actionLabel(prefs.getString("camDouble", "open")), 16f, C_TEXT, false);
+        cam.addView(selectorRow("双击相机键", camDoubleView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showCamActionDialog("camDouble", camDoubleView, "双击相机键");
+            }
+        }));
+
+        camLongView = text(actionLabel(prefs.getString("camLong", "close")), 16f, C_TEXT, false);
+        cam.addView(selectorRow("长按相机键", camLongView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showCamActionDialog("camLong", camLongView, "长按相机键");
+            }
+        }));
 
         camStatusView = text("", 12f, C_MUTED, false);
-        camStatusView.setPadding(0, dp(4), 0, 0);
+        camStatusView.setPadding(0, dp(8), 0, 0);
         cam.addView(camStatusView);
-
-        Button pickApps = outlineButton("选择应用（可多选）", new View.OnClickListener() {
-            public void onClick(View v) {
-                showAppPicker();
-            }
-        });
-        LinearLayout.LayoutParams paLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
-        paLp.topMargin = dp(8);
-        cam.addView(pickApps, paLp);
 
         Button openA11y = outlineButton("打开无障碍设置", new View.OnClickListener() {
             public void onClick(View v) {
@@ -2152,6 +2193,11 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
         oaLp.topMargin = dp(8);
         cam.addView(openA11y, oaLp);
+
+        TextView camHint = text("未连接 Stream 时不拦截相机键，长按仍交给系统处理；连接后按上面绑定执行。",
+                11f, C_MUTED, false);
+        camHint.setPadding(0, dp(8), 0, 0);
+        cam.addView(camHint);
         root.addView(cam);
 
         Button export = outlineButton("导出检测报告", new View.OnClickListener() {
@@ -2841,6 +2887,9 @@ public class MainActivity extends Activity {
         sendRawQuiet(";0,01,64\n");
         sendRawQuiet(";0,0A,00\n");
         startKeepAlive();
+        if (prefs != null) {
+            prefs.edit().putBoolean("streamConnected", true).apply();
+        }
 
         setChip("已连接 054C:0E6D", C_GREEN, C_GREEN_BG);
         reading = true;
@@ -2891,6 +2940,9 @@ public class MainActivity extends Activity {
     }
 
     private void closeUsb() {
+        if (prefs != null) {
+            prefs.edit().putBoolean("streamConnected", false).apply();
+        }
         keepAlive = false;
         Thread k = keepAliveThread;
         keepAliveThread = null;

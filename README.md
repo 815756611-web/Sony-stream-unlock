@@ -14,7 +14,7 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 - **网卡板块**：链路速率、实时上下行、IP，状态检测并入本板块
 - **HDMI 板块**：视频/音频开关（`0x43`）、显示模式、固件版本（`0x22`）、外接显示检测，以及 **HDMI 媒体 / 通话音量**（作用于 HDMI 音频输出）
 - **3.5mm 音频板块**：USB 声卡 / 耳机检测
-- **相机键截图**：无障碍服务 + 应用多选（批量勾选），在选中应用内按相机键截屏
+- **相机键绑定**：连接 Stream 后，单击 / 双击 / 长按可分别绑定 **截图 / 打开小窗 / 关闭小窗 / 无操作**；未连接时不拦截，系统默认长按照常
 - **插入自动连接**：插入 Stream 后自动扫描并连接（可关闭）
 - **USB 保活心跳**：每 2 秒一次查询，避免 MCU 空闲复位导致整机掉线
 - **默认深色主题**：官方头图与背景融合；右上角可切换浅色
@@ -32,6 +32,7 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 ## 下载
 
 - [最新 Release](https://github.com/815756611-web/Sony-stream-unlock/releases/latest)
+- [v2.5.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.5.0)
 - [v2.4.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.4.0)
 - [v2.3.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.3.0)
 - [v2.2.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.2.0)
@@ -49,7 +50,7 @@ adb install -r StreamFanCtl.apk
 
 ### SukiSU 模块
 
-刷入 `StreamFanCtl-v2.4.0.zip` 后重启。模块会安装 APK，并附带：
+刷入 `StreamFanCtl-v2.5.0.zip` 后重启。模块会安装 APK，并附带：
 
 - `tools/audio-diag.sh` —— 3.5mm / USB 音频链路诊断
 - `tools/usb-monitor.sh` —— USB 掉线瞬间抓 dmesg 与供电信息
