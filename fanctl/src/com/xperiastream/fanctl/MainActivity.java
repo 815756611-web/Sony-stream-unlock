@@ -47,6 +47,8 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -93,6 +95,8 @@ public class MainActivity extends Activity {
     private int C_RED_BG;
     private int C_GRAY_BTN;
     private int C_OUTLINE;
+    private int C_AMBER;
+    private int C_AMBER_BG;
 
     private UsbManager usb;
     private UsbDevice device;
@@ -129,6 +133,8 @@ public class MainActivity extends Activity {
     // four-in-one detection panel
     private final TextView[] detValue = new TextView[4];
     private final TextView[] detStatus = new TextView[4];
+    private final TextView[] secChip = new TextView[4];
+    private final TextView[] secDetail = new TextView[4];
     private final Detectors.Det[] detCache = new Detectors.Det[4];
     private final long[] ethPrev = new long[3];
     private boolean detBusy = false;
@@ -1095,6 +1101,7 @@ public class MainActivity extends Activity {
         row.setPadding(0, dp(6), 0, 0);
         row.addView(text(label, 13f, C_TEXT, false), new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        styleSwitch(sw);
         row.addView(sw);
         return row;
     }
@@ -1343,7 +1350,8 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------ UI v2.1
 
-    private View buildUi() {
+    @Deprecated
+    private View buildUiV21() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(C_BG);
 
@@ -1776,10 +1784,406 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    // ------------------------------------------------------------ UI v2.2
+
+    private View buildUi() {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(C_BG);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(16), dp(14), dp(16), dp(28));
+        scroll.addView(root);
+
+        // ---- hero ----
+        FrameLayout hero = new FrameLayout(this);
+        GradientDrawable hb = new GradientDrawable();
+        hb.setColor(C_PRIMARY_SOFT);
+        hb.setCornerRadius(dp(26));
+        hero.setBackground(hb);
+        hero.setClipToOutline(true);
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(196));
+        heroLp.bottomMargin = dp(14);
+
+        ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        int heroId = getResources().getIdentifier("hero", "drawable", getPackageName());
+        if (heroId != 0) {
+            img.setImageResource(heroId);
+        }
+        hero.addView(img, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        View scrim = new View(this);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[] {0xD9000000, 0x00000000}));
+        hero.addView(scrim, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(100), Gravity.BOTTOM));
+
+        LinearLayout heroTextBox = new LinearLayout(this);
+        heroTextBox.setOrientation(LinearLayout.VERTICAL);
+        TextView heroTitle = text("Xperia Stream", 26f, Color.WHITE, true);
+        heroTitle.setShadowLayer(8f, 0f, 2f, 0x99000000);
+        heroTextBox.addView(heroTitle);
+        heroTextBox.addView(text("风扇 · 显示 · 音频 · 接口", 12f, 0xFFE5E7EB, false));
+        FrameLayout.LayoutParams htLp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.START);
+        htLp.leftMargin = dp(18);
+        htLp.bottomMargin = dp(14);
+        hero.addView(heroTextBox, htLp);
+        root.addView(hero, heroLp);
+
+        // ---- connection ----
+        LinearLayout conn = card();
+        conn.addView(headerRow("连接", null));
+        statusChip = chip("未连接");
+        LinearLayout.LayoutParams chipLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        chipLp.topMargin = dp(8);
+        conn.addView(statusChip, chipLp);
+        TextView devLine = text("插入 Stream 后自动扫描；首次连接需要允许 USB 权限", 11f, C_MUTED, false);
+        devLine.setPadding(0, dp(8), 0, dp(10));
+        conn.addView(devLine);
+
+        LinearLayout connRow = new LinearLayout(this);
+        connRow.setOrientation(LinearLayout.HORIZONTAL);
+        connRow.addView(action("重新扫描", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                scan();
+            }
+        }), rowBtnLp());
+        connRow.addView(action("连接", true, new View.OnClickListener() {
+            public void onClick(View v) {
+                scan();
+            }
+        }), rowBtnLp());
+        conn.addView(connRow);
+
+        autoConnectSwitch = new Switch(this);
+        autoConnectSwitch.setChecked(autoConnect);
+        autoConnectSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                autoConnect = v;
+                prefs.edit().putBoolean("autoConnect", v).apply();
+            }
+        });
+        conn.addView(toggleRow("插入时自动连接", autoConnectSwitch));
+        root.addView(conn);
+
+        // ---- fan + auto ----
+        LinearLayout fan = card();
+        fan.addView(headerRow("风扇调节", null));
+
+        fanOnSwitch = new Switch(this);
+        fanOnSwitch.setChecked(fanOn);
+        fanOnSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                fanOn = v;
+                prefs.edit().putBoolean("fanOn", v).apply();
+                sendRaw(v ? ";0,0C,00\n" : ";0,0C,01\n");
+            }
+        });
+        fan.addView(toggleRow("启用风扇", fanOnSwitch));
+
+        ledSwitch = new Switch(this);
+        ledSwitch.setChecked(ledEnabled);
+        ledSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                setLed(v);
+            }
+        });
+        fan.addView(toggleRow("风扇灯效", ledSwitch));
+
+        speedValueView = text("5700 RPM", 16f, C_TEXT, false);
+        fan.addView(selectorRow("风扇转速", speedValueView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showSpeedDialog();
+            }
+        }));
+
+        Button readSpeed = outlineButton("读取转速", new View.OnClickListener() {
+            public void onClick(View v) {
+                sendRaw(";0,03,00\n");
+            }
+        });
+        LinearLayout.LayoutParams rbLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46));
+        rbLp.topMargin = dp(10);
+        fan.addView(readSpeed, rbLp);
+
+        fan.addView(divider());
+
+        autoSwitch = new Switch(this);
+        autoSwitch.setChecked(autoEnabled);
+        autoSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                if (isChecked) {
+                    startAuto();
+                } else {
+                    stopAuto(true);
+                }
+            }
+        });
+        fan.addView(headerRow("自动调速", autoSwitch));
+
+        tempView = text("温度 --", 24f, C_TEXT, true);
+        tempView.setPadding(0, dp(8), 0, dp(2));
+        fan.addView(tempView);
+
+        targetView = text("目标转速 --", 12f, C_MUTED, false);
+        targetView.setPadding(0, 0, 0, dp(8));
+        fan.addView(targetView);
+
+        tempBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        tempBar.setMax(10200);
+        tempBar.setProgress(0);
+        tempBar.setProgressTintList(android.content.res.ColorStateList.valueOf(C_PRIMARY));
+        tempBar.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(C_GRAY_BTN));
+        fan.addView(tempBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(8)));
+
+        LinearLayout profRow = new LinearLayout(this);
+        profRow.setOrientation(LinearLayout.HORIZONTAL);
+        profRow.setPadding(0, dp(10), 0, 0);
+        for (int i = 0; i < PROFILE_IDS.length; i++) {
+            final int idx = i;
+            Button b = action(PROFILE_NAMES[i], false, new View.OnClickListener() {
+                public void onClick(View v) {
+                    setProfile(PROFILE_IDS[idx]);
+                }
+            });
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+            profileBtns[i] = b;
+            profRow.addView(b, speedLp());
+        }
+        fan.addView(profRow);
+
+        profileHint = text("", 11f, C_MUTED, false);
+        profileHint.setPadding(0, dp(8), 0, 0);
+        fan.addView(profileHint);
+
+        Button editTpl = outlineButton("编辑模板（温度 ↔ 转速）", new View.OnClickListener() {
+            public void onClick(View v) {
+                showTemplateEditor();
+            }
+        });
+        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        etLp.topMargin = dp(8);
+        fan.addView(editTpl, etLp);
+
+        voiceSwitch = new Switch(this);
+        voiceSwitch.setChecked(voicePauseEnabled);
+        voiceSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                voicePauseEnabled = isChecked;
+                prefs.edit().putBoolean("voicePause", isChecked).apply();
+                if (!isChecked && voicePaused) {
+                    voicePaused = false;
+                    sendSpeed(autoTarget, true);
+                    log("语音暂停已关闭，恢复 " + autoTarget + " rpm");
+                }
+            }
+        });
+        fan.addView(toggleRow("语音 / 通话时暂停风扇", voiceSwitch));
+        root.addView(fan);
+
+        // ---- charge ----
+        LinearLayout ch = card();
+        secChip[0] = chip("--");
+        ch.addView(headerRow("充电", secChip[0]));
+        chargeWatts = text("-- W", 30f, C_TEXT, true);
+        chargeWatts.setPadding(0, dp(6), 0, 0);
+        ch.addView(chargeWatts);
+        chargeDetail = text("等待数据…", 12f, C_MUTED, false);
+        ch.addView(chargeDetail);
+        secDetail[0] = text("", 11f, C_MUTED, false);
+        secDetail[0].setPadding(0, dp(6), 0, 0);
+        ch.addView(secDetail[0]);
+        chargeTemp = text("电池温度 --", 12f, C_MUTED, false);
+        chargeTemp.setPadding(0, dp(4), 0, 0);
+        ch.addView(chargeTemp);
+        root.addView(ch);
+
+        // ---- ethernet ----
+        LinearLayout ethCard = card();
+        secChip[3] = chip("--");
+        ethCard.addView(headerRow("网卡", secChip[3]));
+        secDetail[3] = text("未检测", 12f, C_MUTED, false);
+        secDetail[3].setPadding(0, dp(8), 0, 0);
+        ethCard.addView(secDetail[3]);
+        root.addView(ethCard);
+
+        // ---- hdmi ----
+        LinearLayout hdmiCard = card();
+        secChip[2] = chip("--");
+        hdmiCard.addView(headerRow("HDMI", secChip[2]));
+
+        hdmiSwitch = new Switch(this);
+        hdmiSwitch.setChecked(hdmiEnabled);
+        hdmiSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                setHdmi(v);
+            }
+        });
+        hdmiCard.addView(toggleRow("启用 HDMI 视频和音频输出", hdmiSwitch));
+
+        hdmiModeValueView = text("自动", 16f, C_TEXT, false);
+        hdmiCard.addView(selectorRow("显示模式", hdmiModeValueView, new View.OnClickListener() {
+            public void onClick(View v) {
+                showDisplayModeDialog();
+            }
+        }));
+
+        fwView = text("固件版本 --", 12f, C_MUTED, false);
+        fwView.setPadding(0, dp(8), 0, 0);
+        hdmiCard.addView(fwView);
+
+        Button fwBtn = outlineButton("读取 HDMI 固件版本", new View.OnClickListener() {
+            public void onClick(View v) {
+                queryHdmiFw();
+            }
+        });
+        LinearLayout.LayoutParams fwLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        fwLp.topMargin = dp(8);
+        hdmiCard.addView(fwBtn, fwLp);
+
+        secDetail[2] = text("", 11f, C_MUTED, false);
+        secDetail[2].setPadding(0, dp(8), 0, 0);
+        hdmiCard.addView(secDetail[2]);
+        root.addView(hdmiCard);
+
+        // ---- 3.5mm audio ----
+        LinearLayout audioCard = card();
+        secChip[1] = chip("--");
+        audioCard.addView(headerRow("3.5mm 音频", secChip[1]));
+        secDetail[1] = text("未检测", 12f, C_MUTED, false);
+        secDetail[1].setPadding(0, dp(8), 0, 0);
+        audioCard.addView(secDetail[1]);
+        audioCard.addView(sliderRow("媒体音量", true));
+        audioCard.addView(sliderRow("通话音量", false));
+        root.addView(audioCard);
+
+        // ---- camera key ----
+        LinearLayout cam = card();
+        cam.addView(headerRow("相机键截图", null));
+        camSwitch = new Switch(this);
+        camSwitch.setChecked(prefs.getBoolean("camShot", false));
+        camSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean v) {
+                prefs.edit().putBoolean("camShot", v).apply();
+                updateCamStatus();
+            }
+        });
+        cam.addView(toggleRow("启用相机键截图", camSwitch));
+
+        camAppsView = text("已选应用：无", 12f, C_MUTED, false);
+        camAppsView.setPadding(0, dp(6), 0, 0);
+        cam.addView(camAppsView);
+
+        camStatusView = text("", 12f, C_MUTED, false);
+        camStatusView.setPadding(0, dp(4), 0, 0);
+        cam.addView(camStatusView);
+
+        Button pickApps = outlineButton("选择应用（可多选）", new View.OnClickListener() {
+            public void onClick(View v) {
+                showAppPicker();
+            }
+        });
+        LinearLayout.LayoutParams paLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        paLp.topMargin = dp(8);
+        cam.addView(pickApps, paLp);
+
+        Button openA11y = outlineButton("打开无障碍设置", new View.OnClickListener() {
+            public void onClick(View v) {
+                openAccessibilitySettings();
+            }
+        });
+        LinearLayout.LayoutParams oaLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        oaLp.topMargin = dp(8);
+        cam.addView(openA11y, oaLp);
+        root.addView(cam);
+
+        Button export = outlineButton("导出检测报告", new View.OnClickListener() {
+            public void onClick(View v) {
+                exportReport();
+            }
+        });
+        root.addView(export, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46)));
+
+        updateProfileUi();
+        refreshRpmUi();
+        updateVolumeUi();
+        updateCamStatus();
+        return scroll;
+    }
+
+    private LinearLayout headerRow(String title, View right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(text(title, 15f, C_TEXT, true), new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        if (right != null) {
+            row.addView(right);
+        }
+        return row;
+    }
+
     private TextView section(String s) {
         TextView t = text(s, 13f, C_MUTED, false);
         t.setPadding(dp(2), dp(12), 0, dp(6));
         return t;
+    }
+
+    private TextView chip(String s) {
+        TextView t = text(s, 11f, C_MUTED, true);
+        t.setPadding(dp(10), dp(3), dp(10), dp(3));
+        t.setBackground(bg(C_GRAY_BTN, 12));
+        return t;
+    }
+
+    private View divider() {
+        View v = new View(this);
+        v.setBackgroundColor(C_OUTLINE);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+        p.topMargin = dp(12);
+        p.bottomMargin = dp(4);
+        v.setLayoutParams(p);
+        return v;
+    }
+
+    private void applySectionDet(int i, Detectors.Det d) {
+        if (secChip[i] == null) {
+            return;
+        }
+        int fg;
+        int bgc;
+        if ("OK".equals(d.status)) {
+            fg = C_GREEN;
+            bgc = C_GREEN_BG;
+        } else if ("WARN".equals(d.status)) {
+            fg = C_AMBER;
+            bgc = C_AMBER_BG;
+        } else {
+            fg = C_RED;
+            bgc = C_RED_BG;
+        }
+        secChip[i].setText(d.status);
+        secChip[i].setTextColor(fg);
+        secChip[i].setBackground(bg(bgc, 12));
+        if (secDetail[i] != null) {
+            secDetail[i].setText(d.text);
+            secDetail[i].setTextColor(fg);
+        }
     }
 
     private Button outlineButton(String s, View.OnClickListener l) {
@@ -2096,13 +2500,25 @@ public class MainActivity extends Activity {
     private LinearLayout card() {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(bg(C_CARD, 18));
-        c.setPadding(dp(16), dp(14), dp(16), dp(14));
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(C_CARD);
+        d.setCornerRadius(dp(22));
+        d.setStroke(dp(1), C_OUTLINE);
+        c.setBackground(d);
+        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        if (!darkMode) {
+            c.setElevation(dp(2));
+        }
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        p.bottomMargin = dp(12);
+        p.bottomMargin = dp(14);
         c.setLayoutParams(p);
         return c;
+    }
+
+    private void styleSwitch(Switch sw) {
+        sw.setThumbTintList(android.content.res.ColorStateList.valueOf(C_PRIMARY));
+        sw.setTrackTintList(android.content.res.ColorStateList.valueOf(C_PRIMARY_SOFT));
     }
 
     private TextView text(String s, float sp, int color, boolean bold) {
@@ -2164,6 +2580,8 @@ public class MainActivity extends Activity {
             C_RED_BG = 0xFFFEE2E2;
             C_GRAY_BTN = 0xFFE5E7EB;
             C_OUTLINE = 0xFFCBD5E1;
+            C_AMBER = 0xFFB45309;
+            C_AMBER_BG = 0xFFFEF3C7;
         } else {
             C_BG = 0xFF0B0F14;
             C_CARD = 0xFF161B22;
@@ -2177,6 +2595,8 @@ public class MainActivity extends Activity {
             C_RED_BG = 0xFF3D1519;
             C_GRAY_BTN = 0xFF21262D;
             C_OUTLINE = 0xFF30363D;
+            C_AMBER = 0xFFD29922;
+            C_AMBER_BG = 0xFF3B2F0B;
         }
     }
 
@@ -2789,6 +3209,7 @@ public class MainActivity extends Activity {
     }
 
     private void applyDet(int i, Detectors.Det d) {
+        applySectionDet(i, d);
         if (detValue[i] == null) {
             return;
         }
@@ -2799,8 +3220,8 @@ public class MainActivity extends Activity {
             fg = C_GREEN;
             bgc = C_GREEN_BG;
         } else if ("WARN".equals(d.status)) {
-            fg = 0xFF92400E;
-            bgc = 0xFFFEF3C7;
+            fg = C_AMBER;
+            bgc = C_AMBER_BG;
         } else {
             fg = C_RED;
             bgc = C_RED_BG;
