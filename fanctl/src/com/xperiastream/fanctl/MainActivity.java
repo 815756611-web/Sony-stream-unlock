@@ -1911,9 +1911,10 @@ public class MainActivity extends Activity {
 
         LinearLayout connRow = new LinearLayout(this);
         connRow.setOrientation(LinearLayout.HORIZONTAL);
-        connRow.addView(action("重新扫描", false, new View.OnClickListener() {
+        connRow.addView(action("断开", false, new View.OnClickListener() {
             public void onClick(View v) {
-                scan();
+                disconnect();
+                setChip("已断开", C_MUTED, C_GRAY_BTN);
             }
         }), rowBtnLp());
         connRow.addView(action("连接", true, new View.OnClickListener() {
