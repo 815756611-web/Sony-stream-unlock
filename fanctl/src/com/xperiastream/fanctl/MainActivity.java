@@ -145,6 +145,7 @@ public class MainActivity extends Activity {
     private AudioManager.AudioRecordingCallback recCb;
     private volatile boolean micActive = false;
     private volatile boolean voicePaused = false;
+    private volatile int voiceResumeRpm = 0;
     private boolean voicePauseEnabled = true;
     private volatile boolean voicePoll = false;
     private Thread voicePollThread;
@@ -281,6 +282,7 @@ public class MainActivity extends Activity {
             setContentView(tv);
         }
         initVoiceDetection();
+        startVoiceWatch();
         String cmd = getIntent() != null ? getIntent().getStringExtra("cmd") : null;
         if (cmd != null) {
             ui.postDelayed(new Runnable() {
@@ -462,7 +464,7 @@ public class MainActivity extends Activity {
 
     /** Fallback poll, used only when READ_PHONE_STATE is denied. */
     private void startVoiceWatch() {
-        if (voicePoll || !autoEnabled || !voicePauseEnabled || hasPhonePermission()) {
+        if (voicePoll || !voicePauseEnabled || hasPhonePermission()) {
             return;
         }
         voicePoll = true;
@@ -512,18 +514,25 @@ public class MainActivity extends Activity {
     }
 
     private void onVoiceState(boolean active) {
-        if (!autoEnabled || !voicePauseEnabled) {
+        if (!voicePauseEnabled) {
+            return;
+        }
+        if (active && conn == null) {
             return;
         }
         if (active == voicePaused) {
             return;
         }
+        if (active) {
+            voiceResumeRpm = autoEnabled ? autoTarget : lastSentRpm;
+        }
         voicePaused = active;
-        final int target = active ? 0 : autoTarget;
-        log(active ? "语音输入开始，风扇暂停" : "语音输入结束，恢复 " + autoTarget + " rpm");
+        final int target = active ? 0 : (autoEnabled ? autoTarget : voiceResumeRpm);
+        log(active ? "语音/通话开始，风扇暂停"
+                : "语音/通话结束，恢复 " + target + " rpm");
         new Thread(new Runnable() {
             public void run() {
-                sendSpeed(target, true);
+                sendSpeed(target, autoEnabled);
             }
         }, "voice").start();
     }
@@ -1820,16 +1829,14 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(14), dp(16), dp(28));
         scroll.addView(root);
 
-        // ---- hero ----
+        // ---- hero (edge to edge, no frame) ----
         FrameLayout hero = new FrameLayout(this);
-        GradientDrawable hb = new GradientDrawable();
-        hb.setColor(C_PRIMARY_SOFT);
-        hb.setCornerRadius(dp(26));
-        hero.setBackground(hb);
-        hero.setClipToOutline(true);
         LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(196));
-        heroLp.bottomMargin = dp(14);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(208));
+        heroLp.leftMargin = -dp(16);
+        heroLp.rightMargin = -dp(16);
+        heroLp.topMargin = -dp(14);
+        heroLp.bottomMargin = dp(16);
 
         ImageView img = new ImageView(this);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -1842,22 +1849,18 @@ public class MainActivity extends Activity {
 
         View scrim = new View(this);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[] {0xD9000000, 0x00000000}));
+                new int[] {0xA6000000, 0x00000000}));
         hero.addView(scrim, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, dp(100), Gravity.BOTTOM));
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(96), Gravity.BOTTOM));
 
-        LinearLayout heroTextBox = new LinearLayout(this);
-        heroTextBox.setOrientation(LinearLayout.VERTICAL);
         TextView heroTitle = text("Xperia Stream", 26f, Color.WHITE, true);
         heroTitle.setShadowLayer(8f, 0f, 2f, 0x99000000);
-        heroTextBox.addView(heroTitle);
-        heroTextBox.addView(text("风扇 · 显示 · 音频 · 接口", 12f, 0xFFE5E7EB, false));
         FrameLayout.LayoutParams htLp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.START);
-        htLp.leftMargin = dp(18);
-        htLp.bottomMargin = dp(14);
-        hero.addView(heroTextBox, htLp);
+        htLp.leftMargin = dp(20);
+        htLp.bottomMargin = dp(16);
+        hero.addView(heroTitle, htLp);
         root.addView(hero, heroLp);
 
         // ---- connection ----
@@ -1920,6 +1923,24 @@ public class MainActivity extends Activity {
             }
         });
         fan.addView(toggleRow("风扇灯效", ledSwitch));
+
+        voiceSwitch = new Switch(this);
+        voiceSwitch.setChecked(voicePauseEnabled);
+        voiceSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                voicePauseEnabled = isChecked;
+                prefs.edit().putBoolean("voicePause", isChecked).apply();
+                if (!isChecked && voicePaused) {
+                    voicePaused = false;
+                    int back = autoEnabled ? autoTarget : voiceResumeRpm;
+                    sendSpeed(back, autoEnabled);
+                    log("语音暂停已关闭，恢复 " + back + " rpm");
+                } else if (isChecked) {
+                    startVoiceWatch();
+                }
+            }
+        });
+        fan.addView(toggleRow("语音 / 通话时暂停风扇", voiceSwitch));
 
         speedValueView = text("5700 RPM", 16f, C_TEXT, false);
         fan.addView(selectorRow("风扇转速", speedValueView, new View.OnClickListener() {
@@ -2008,20 +2029,6 @@ public class MainActivity extends Activity {
         tplRow.addView(importTpl, rowBtnLp());
         fan.addView(tplRow);
 
-        voiceSwitch = new Switch(this);
-        voiceSwitch.setChecked(voicePauseEnabled);
-        voiceSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                voicePauseEnabled = isChecked;
-                prefs.edit().putBoolean("voicePause", isChecked).apply();
-                if (!isChecked && voicePaused) {
-                    voicePaused = false;
-                    sendSpeed(autoTarget, true);
-                    log("语音暂停已关闭，恢复 " + autoTarget + " rpm");
-                }
-            }
-        });
-        fan.addView(toggleRow("语音 / 通话时暂停风扇", voiceSwitch));
         root.addView(fan);
 
         // ---- charge ----
@@ -3054,7 +3061,6 @@ public class MainActivity extends Activity {
         boolean was = autoEnabled;
         autoEnabled = false;
         autoThread = null;
-        voicePaused = false;
         callWatchdog = false;
         stopVoiceWatch();
         setManualEnabled(true);

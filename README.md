@@ -6,10 +6,10 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 
 ## 功能
 
-- **顶部头图**：直接使用索尼官方设置页的 Xperia Stream 渲染原图（`settings_global_gamingfan_xperia_stream_settings_main_icon`）
+- **顶部头图**：直接使用索尼官方设置页的 Xperia Stream 渲染原图（`settings_global_gamingfan_xperia_stream_settings_main_icon`），无边框通栏显示
 - **风扇调节**：启用/停用（`0x0C`）、灯效开关（`0x42`）、转速下拉（0 / 4800 / 5700 / 6600 / 7500 / 8400 / 9300 / 10200）、读取转速
 - **自动调速 + 模板**：按电池温度升降档（2 °C 迟滞），预设精简为 **均衡 / 性能**，性能档最高 10200 rpm；另可自定义或**导入** 5 段「温度 ↔ 转速」模板
-- **语音 / 通话时暂停风扇**：麦克风或通话期间风扇归零，结束自动恢复
+- **语音 / 通话时暂停风扇**：麦克风或通话期间风扇归零，结束自动恢复；**手动、自动模式均生效**（手动模式恢复原转速）
 - **充电板块**：实时功率 W、电压 / 电流、电量、电池温度，状态检测并入本板块
 - **网卡板块**：链路速率、实时上下行、IP，状态检测并入本板块
 - **HDMI 板块**：视频/音频开关（`0x43`）、显示模式、固件版本（`0x22`）、外接显示检测，以及 **HDMI 媒体 / 通话音量**（作用于 HDMI 音频输出）
@@ -32,6 +32,7 @@ App 直接通过 USB CDC-ACM 与配件的 MCU 通信（VID `054C` / PID `0E6D`�
 ## 下载
 
 - [最新 Release](https://github.com/815756611-web/Sony-stream-unlock/releases/latest)
+- [v2.4.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.4.0)
 - [v2.3.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.3.0)
 - [v2.2.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.2.0)
 - [v2.1.0](https://github.com/815756611-web/Sony-stream-unlock/releases/tag/v2.1.0)
@@ -48,7 +49,7 @@ adb install -r StreamFanCtl.apk
 
 ### SukiSU 模块
 
-刷入 `StreamFanCtl-v2.3.0.zip` 后重启。模块会安装 APK，并附带：
+刷入 `StreamFanCtl-v2.4.0.zip` 后重启。模块会安装 APK，并附带：
 
 - `tools/audio-diag.sh` —— 3.5mm / USB 音频链路诊断
 - `tools/usb-monitor.sh` —— USB 掉线瞬间抓 dmesg 与供电信息
