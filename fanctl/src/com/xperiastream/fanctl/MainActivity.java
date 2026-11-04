@@ -801,7 +801,12 @@ public class MainActivity extends Activity {
                 if (prefs != null) {
                     prefs.edit().putBoolean("dark", darkMode).apply();
                 }
-                recreate();
+                applyPalette(darkMode);
+                try {
+                    setContentView(buildUi());
+                } catch (Throwable t) {
+                    Log.e(TAG, "rebuild ui failed", t);
+                }
             }
         });
         themeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
@@ -901,7 +906,7 @@ public class MainActivity extends Activity {
         autoHead.addView(text("自动调速", 15f, C_TEXT, true), new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         autoSwitch = new Switch(this);
-        autoSwitch.setChecked(false);
+        autoSwitch.setChecked(autoEnabled);
         autoSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                 if (isChecked) {
