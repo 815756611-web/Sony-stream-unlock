@@ -1,6 +1,6 @@
 id=stream-fanctl
 name=Stream 风扇控制（独立版）
-version=v2.2.0
-versionCode=18
+version=v2.3.0
+versionCode=19
 author=DeepSeek Harness
-description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）。v2.2：顶部使用索尼官方设置页原图（Stream 渲染）作为头图；布局重排为 连接 → 风扇调节（含自动调速/模板）→ 充电 → 网卡 → HDMI（调节+固件）→ 3.5mm 音频（检测+音量）→ 相机键截图；接口检测并入各板块，移除日志面板；统一卡片、状态胶囊与开关样式。
+description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）。v2.3：默认深色主题，官方头图与背景融合；自动预设精简为 均衡 / 性能 / 自定义（性能档包含 10200 rpm 最高转速），支持导入自定义「温度↔转速」模板；HDMI 媒体/通话音量移到 HDMI 板块（作用于 HDMI 音频输出）。

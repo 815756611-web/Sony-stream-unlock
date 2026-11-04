@@ -47,6 +47,7 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -186,25 +187,22 @@ public class MainActivity extends Activity {
     private TextView camAppsView;
     private Switch camSwitch;
     private TextView camStatusView;
+    private Button customBtn;
     private int[] customTemps = {34, 36, 38, 40, 42};
     private int[] customSpeeds = {3900, 4800, 5700, 6600, 7500};
     private int hdmiModeId = -1;
     private volatile String lastHdmiFw = null;
     private static final int[] ALL_SPEEDS = {0, 4800, 5700, 6600, 7500, 8400, 9300, 10200};
 
-    private static final String[] PROFILE_IDS = {"quiet", "balanced", "performance", "max"};
-    private static final String[] PROFILE_NAMES = {"静音", "均衡", "性能", "极速"};
+    private static final String[] PROFILE_IDS = {"balanced", "performance"};
+    private static final String[] PROFILE_NAMES = {"均衡", "性能"};
     private static final float[][] PROFILE_THRESHOLDS = {
-            {36f, 38f, 40f, 42f, 44f},
             {34f, 36f, 38f, 40f, 42f},
-            {32f, 34f, 36f, 38f, 40f},
-            {30f, 32f, 34f, 36f, 38f}
+            {32f, 34f, 36f, 38f, 40f}
     };
     private static final int[][] PROFILE_SPEEDS = {
             {3900, 4800, 5700, 6600, 7500},
-            {3900, 4800, 5700, 6600, 7500},
-            {4800, 5700, 6600, 7500, 7500},
-            {5700, 6600, 7500, 7500, 7500}
+            {5700, 6600, 7500, 8400, 10200}
     };
 
     private final Runnable detTick = new Runnable() {
@@ -257,13 +255,17 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("fanctl", MODE_PRIVATE);
-        darkMode = prefs.getBoolean("dark", false);
+        darkMode = prefs.getBoolean("dark", true);
         ledEnabled = prefs.getBoolean("led", true);
         hdmiEnabled = prefs.getBoolean("hdmi", true);
         autoConnect = prefs.getBoolean("autoConnect", true);
         voicePauseEnabled = prefs.getBoolean("voicePause", true);
         fanOn = prefs.getBoolean("fanOn", true);
         profileId = prefs.getString("profile", "balanced");
+        if (!"balanced".equals(profileId) && !"performance".equals(profileId)
+                && !"custom".equals(profileId)) {
+            profileId = "balanced";
+        }
         customTemps = splitInts(prefs.getString("customTemps", null), customTemps);
         customSpeeds = splitInts(prefs.getString("customSpeeds", null), customSpeeds);
         applyPalette(darkMode);
@@ -989,6 +991,15 @@ public class MainActivity extends Activity {
             profileBtns[i] = b;
             profRow.addView(b, speedLp());
         }
+        Button cb = action("自定义", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                setProfile("custom");
+                showTemplateEditor();
+            }
+        });
+        cb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        customBtn = cb;
+        profRow.addView(cb, speedLp());
         autoCard.addView(profRow);
 
         profileHint = text("", 11f, C_MUTED, false);
@@ -1115,6 +1126,11 @@ public class MainActivity extends Activity {
             boolean on = i == active;
             profileBtns[i].setTextColor(on ? Color.WHITE : C_TEXT);
             profileBtns[i].setBackground(bg(on ? C_PRIMARY : C_GRAY_BTN, 12));
+        }
+        if (customBtn != null) {
+            boolean on = active < 0;
+            customBtn.setTextColor(on ? Color.WHITE : C_TEXT);
+            customBtn.setBackground(bg(on ? C_PRIMARY : C_GRAY_BTN, 12));
         }
         if (profileHint != null) {
             float[] th = activeThresholds();
@@ -1517,6 +1533,15 @@ public class MainActivity extends Activity {
             profileBtns[i] = b;
             profRow.addView(b, speedLp());
         }
+        Button cb = action("自定义", false, new View.OnClickListener() {
+            public void onClick(View v) {
+                setProfile("custom");
+                showTemplateEditor();
+            }
+        });
+        cb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        customBtn = cb;
+        profRow.addView(cb, speedLp());
         autoCard.addView(profRow);
 
         profileHint = text("", 11f, C_MUTED, false);
@@ -1965,15 +1990,23 @@ public class MainActivity extends Activity {
         profileHint.setPadding(0, dp(8), 0, 0);
         fan.addView(profileHint);
 
-        Button editTpl = outlineButton("编辑模板（温度 ↔ 转速）", new View.OnClickListener() {
+        LinearLayout tplRow = new LinearLayout(this);
+        tplRow.setOrientation(LinearLayout.HORIZONTAL);
+        tplRow.setPadding(0, dp(8), 0, 0);
+        Button editTpl = outlineButton("编辑模板", new View.OnClickListener() {
             public void onClick(View v) {
+                setProfile("custom");
                 showTemplateEditor();
             }
         });
-        LinearLayout.LayoutParams etLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
-        etLp.topMargin = dp(8);
-        fan.addView(editTpl, etLp);
+        Button importTpl = outlineButton("导入模板", new View.OnClickListener() {
+            public void onClick(View v) {
+                showTemplateImport();
+            }
+        });
+        tplRow.addView(editTpl, rowBtnLp());
+        tplRow.addView(importTpl, rowBtnLp());
+        fan.addView(tplRow);
 
         voiceSwitch = new Switch(this);
         voiceSwitch.setChecked(voicePauseEnabled);
@@ -2052,6 +2085,12 @@ public class MainActivity extends Activity {
         fwLp.topMargin = dp(8);
         hdmiCard.addView(fwBtn, fwLp);
 
+        hdmiCard.addView(sliderRow("HDMI 媒体音量", true));
+        hdmiCard.addView(sliderRow("HDMI 通话音量", false));
+        TextView avHint = text("音量作用于 HDMI 输出的音频", 11f, C_MUTED, false);
+        avHint.setPadding(0, dp(4), 0, 0);
+        hdmiCard.addView(avHint);
+
         secDetail[2] = text("", 11f, C_MUTED, false);
         secDetail[2].setPadding(0, dp(8), 0, 0);
         hdmiCard.addView(secDetail[2]);
@@ -2064,8 +2103,6 @@ public class MainActivity extends Activity {
         secDetail[1] = text("未检测", 12f, C_MUTED, false);
         secDetail[1].setPadding(0, dp(8), 0, 0);
         audioCard.addView(secDetail[1]);
-        audioCard.addView(sliderRow("媒体音量", true));
-        audioCard.addView(sliderRow("通话音量", false));
         root.addView(audioCard);
 
         // ---- camera key ----
@@ -2430,6 +2467,81 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    private void showTemplateImport() {
+        final EditText et = new EditText(this);
+        et.setHint("34,36,38,40,42 → 3900,4800,5700,6600,7500");
+        et.setText(joinInts(customTemps) + " → " + joinInts(customSpeeds));
+        et.setPadding(dp(16), dp(8), dp(16), dp(8));
+        new AlertDialog.Builder(this)
+                .setTitle("导入自定义模板")
+                .setMessage("5 个温度(°C) → 5 个转速(rpm)。可用转速：0 / 4800 / 5700 / 6600 / 7500 / 8400 / 9300 / 10200")
+                .setView(et)
+                .setPositiveButton("导入", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        if (parseTemplate(et.getText().toString())) {
+                            profileId = "custom";
+                            prefs.edit().putString("profile", "custom")
+                                    .putString("customTemps", joinInts(customTemps))
+                                    .putString("customSpeeds", joinInts(customSpeeds)).apply();
+                            updateProfileUi();
+                            log("模板已导入: " + joinInts(customTemps) + " -> " + joinInts(customSpeeds));
+                        } else {
+                            Toast.makeText(MainActivity.this,
+                                    "格式不对：需要 5 个温度、5 个受支持的转速",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private boolean parseTemplate(String s) {
+        if (s == null) {
+            return false;
+        }
+        String t = s.replace('：', ':').replace("->", "→").replace('→', '|');
+        String[] parts = t.split("\\|");
+        if (parts.length != 2) {
+            return false;
+        }
+        String[] a = parts[0].replace("°C", "").replace("C", "").trim().split("[,\\s]+");
+        String[] b = parts[1].replace("rpm", "").trim().split("[,\\s]+");
+        if (a.length != 5 || b.length != 5) {
+            return false;
+        }
+        int[] temps = new int[5];
+        int[] speeds = new int[5];
+        try {
+            for (int i = 0; i < 5; i++) {
+                temps[i] = Integer.parseInt(a[i].trim());
+                speeds[i] = Integer.parseInt(b[i].trim());
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        for (int i = 0; i < 5; i++) {
+            if (temps[i] < 20 || temps[i] > 60) {
+                return false;
+            }
+            if (i > 0 && temps[i] <= temps[i - 1]) {
+                return false;
+            }
+            boolean ok = false;
+            for (int sp : ALL_SPEEDS) {
+                if (sp == speeds[i]) {
+                    ok = true;
+                }
+            }
+            if (!ok) {
+                return false;
+            }
+        }
+        System.arraycopy(temps, 0, customTemps, 0, 5);
+        System.arraycopy(speeds, 0, customSpeeds, 0, 5);
+        return true;
     }
 
     private String joinInts(int[] arr) {
