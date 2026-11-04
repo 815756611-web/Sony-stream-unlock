@@ -1914,7 +1914,12 @@ public class MainActivity extends Activity {
         connRow.addView(action("断开", false, new View.OnClickListener() {
             public void onClick(View v) {
                 disconnect();
-                setChip("已断开", C_MUTED, C_GRAY_BTN);
+                setChip("已断开，正在重新扫描…", C_MUTED, C_GRAY_BTN);
+                ui.postDelayed(new Runnable() {
+                    public void run() {
+                        scan();
+                    }
+                }, 700);
             }
         }), rowBtnLp());
         connRow.addView(action("连接", true, new View.OnClickListener() {

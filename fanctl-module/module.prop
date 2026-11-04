@@ -1,6 +1,6 @@
 id=stream-fanctl
 name=Stream 风扇控制（独立版）
-version=v2.5.1
-versionCode=22
+version=v2.5.2
+versionCode=23
 author=DeepSeek Harness
-description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）。v2.5.1：连接卡片左侧按钮由「重新扫描」改为「断开」，与右侧「连接」配对；其余同 v2.5.0（官方头图、相机键绑定、自动预设、HDMI 音量、接口检测）。
+description=独立 Xperia Stream 风扇控制器（USB 054C:0E6D，CDC 直连）。v2.5.2：点「断开」后会自动重新扫描并连接一次（等价于重连）；其余同 v2.5.1（官方头图、相机键绑定、自动预设、HDMI 音量、四接口检测）。
